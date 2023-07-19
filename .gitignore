@@ -1,0 +1,31 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Bot-specific configurations
+config.json
+.env
+
+# Compiled JavaScript files (if applicable)
+dist/
+
+# Editor-specific files
+.vscode/
+.idea/
+
+# Environment-specific files
+.env
+.env.local
+.env.*.local
+
+# macOS specific files
+.DS_Store
+
+# Log files
+*.log
+
+# Build output
+build/
+dist/
+out/

@@ -1,0 +1,26 @@
+{
+    "name": "multi-bot-madness",
+    "version": "1.0.0",
+    "description": "A versatile Discord bot script for managing multiple bots.",
+    "main": "bot.js",
+    "scripts": {
+        "test": "echo \"No tests available.\""
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ekamaujla/multi-bot-madness.git"
+    },
+    "keywords": [
+        "discord",
+        "discordjs",
+        "bot",
+        "bot-management",
+        "multi-bot"
+    ],
+    "author": "Ekam Aujla",
+    "license": "MIT",
+    "dependencies": {
+        "discord.js": "^14.0.0",
+        "axios": "^0.21.1"
+    }
+}
