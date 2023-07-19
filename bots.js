@@ -1,19 +1,44 @@
 const { Client, MessageEmbed } = require('discord.js');
 const axios = require('axios');
 
+// Common commands array
+const commonCommands = [
+    {
+        name: 'command1',
+        description: 'Description for command1',
+        execute: (interaction, message, args) => {
+            // Your command1 logic here
+            // 'interaction' is the interaction object for slash commands
+            // 'message' is the message object for message commands
+            // 'args' is an array of command arguments
+        },
+    },
+    {
+        name: 'command2',
+        description: 'Description for command2',
+        execute: (interaction, message, args) => {
+            // Your command2 logic here
+            // 'interaction' is the interaction object for slash commands
+            // 'message' is the message object for message commands
+            // 'args' is an array of command arguments
+        },
+    },
+    // Add more common commands here
+];
+
 // User-defined bot configurations
 const userBotConfigs = [
     {
         token: 'YOUR_BOT_1_TOKEN',
         prefix: '!bot1',
         logChannels: {
-            messageDeleted: 'CHANNEL_ID_FOR_BOT_1_DELETED_MESSAGES', // Replace with the channel ID where you want to log deleted messages
-            joinedGuild: 'CHANNEL_ID_FOR_BOT_1_JOINED_GUILD', // Replace with the channel ID where you want to log joined guilds
-            leftGuild: 'CHANNEL_ID_FOR_BOT_1_LEFT_GUILD', // Replace with the channel ID where you want to log left guilds
+            messageDeleted: 'CHANNEL_ID_FOR_BOT_1_DELETED_MESSAGES',
+            joinedGuild: 'CHANNEL_ID_FOR_BOT_1_JOINED_GUILD',
+            leftGuild: 'CHANNEL_ID_FOR_BOT_1_LEFT_GUILD',
         },
         customStatuses: [
             {
-                type: 'PLAYING', // Possible values: 'PLAYING', 'WATCHING', 'LISTENING', 'STREAMING', 'COMPETING', or 'CUSTOM_STATUS'
+                type: 'PLAYING',
                 text: 'with humans!',
             },
             {
@@ -21,14 +46,15 @@ const userBotConfigs = [
                 text: 'over the server!',
             },
         ],
+        enabledCommands: ['command1', 'command2'], // Add the names of the enabled commands here
     },
     {
         token: 'YOUR_BOT_2_TOKEN',
         prefix: '!bot2',
         logChannels: {
-            messageDeleted: 'CHANNEL_ID_FOR_BOT_2_DELETED_MESSAGES', // Replace with the channel ID where you want to log deleted messages
-            joinedGuild: 'CHANNEL_ID_FOR_BOT_2_JOINED_GUILD', // Replace with the channel ID where you want to log joined guilds
-            leftGuild: 'CHANNEL_ID_FOR_BOT_2_LEFT_GUILD', // Replace with the channel ID where you want to log left guilds
+            messageDeleted: 'CHANNEL_ID_FOR_BOT_2_DELETED_MESSAGES',
+            joinedGuild: 'CHANNEL_ID_FOR_BOT_2_JOINED_GUILD',
+            leftGuild: 'CHANNEL_ID_FOR_BOT_2_LEFT_GUILD',
         },
         customStatuses: [
             {
@@ -40,6 +66,7 @@ const userBotConfigs = [
                 text: 'with moderation settings.',
             },
         ],
+        enabledCommands: ['command1', 'command2'], // Add the names of the enabled commands here
     },
     // Add more bot configurations as needed
 ];
@@ -69,6 +96,20 @@ const simulateTyping = async (channel) => {
     channel.stopTyping();
 };
 
+// Function to register slash commands for each bot
+async function registerSlashCommands(client) {
+    const config = userBotConfigs.find((bot) => bot.token === client.token);
+
+    const enabledCommands = commonCommands.filter((command) => config.enabledCommands.includes(command.name));
+
+    try {
+        await client.application?.commands.set(enabledCommands);
+        console.log(`Registered slash commands for ${client.user.username}.`);
+    } catch (error) {
+        console.error(`Failed to register slash commands for ${client.user.username}: ${error.message}`);
+    }
+}
+
 // Create and initialize bots
 for (const config of userBotConfigs) {
     const client = new Client();
@@ -97,9 +138,37 @@ for (const config of userBotConfigs) {
                 });
             }, 600000); // 10 minutes in milliseconds
         }
+
+        // Register slash commands
+        registerSlashCommands(client);
     });
 
-    client.on('message', async (message) => {
+    // Register message commands
+    const enabledMessageCommands = commonCommands.filter((command) => config.enabledCommands.includes(command.name));
+    enabledMessageCommands.forEach((command) => {
+        botCommands.set(`${config.prefix} ${command.name}`, command);
+    });
+
+    // Event listener for slash command interactions and context menu commands
+    client.on('interactionCreate', async (interaction) => {
+        if (interaction.isCommand()) {
+            const args = [];
+            for (const option of interaction.options.data) {
+                if (option.type === 'SUB_COMMAND') {
+                    args.push(option.name);
+                } else if (option.type === 'STRING' || option.type === 'INTEGER') {
+                    args.push(option.value);
+                }
+            }
+            handleCommand(interaction, null, args); // Pass null as the message object for slash commands
+        } else if (interaction.isContextMenu()) {
+            const args = [interaction.targetId];
+            handleCommand(interaction, null, args); // Pass null as the message object for context menu commands
+        }
+    });
+
+    // Event listener for message commands
+    client.on('messageCreate', (message) => {
         if (message.author.bot) return; // Ignore messages from other bots
 
         const { prefix } = config;
@@ -108,19 +177,39 @@ for (const config of userBotConfigs) {
         const args = message.content.slice(prefix.length).trim().split(/ +/);
         const commandName = args.shift().toLowerCase();
 
-        const command = botCommands.get(client.token)?.get(commandName);
+        const command = botCommands.get(`${prefix} ${commandName}`);
         if (command) {
-            try {
-                await command.execute(message, args);
-            } catch (error) {
-                console.error(error);
-                message.channel.send('An error occurred while executing the command.');
-                logErrorToChannel(message.channel, error);
-            }
+            handleCommand(null, message, args); // Pass null as the interaction object for message commands
         } else {
             message.channel.send(`Invalid command. Type \`${prefix} help\` to see the list of commands.`);
         }
     });
+
+    // Event listener for handling both slash commands and message commands
+    async function handleCommand(interaction, message, args) {
+        const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
+
+        const command = botCommands.get(commandName);
+        if (command) {
+            try {
+                command.execute(interaction, message, args);
+            } catch (error) {
+                console.error(error);
+                if (interaction && interaction.replied) {
+                    interaction.followUp({ content: 'An error occurred while executing the command.', ephemeral: true });
+                } else if (message) {
+                    message.channel.send('An error occurred while executing the command.');
+                }
+                logErrorToChannel(interaction ? interaction.channel : message.channel, error);
+            }
+        } else {
+            if (interaction && interaction.replied) {
+                interaction.followUp({ content: `Unknown command: ${commandName}`, ephemeral: true });
+            } else if (message) {
+                message.channel.send(`Unknown command: ${commandName}`);
+            }
+        }
+    }
 
     // Message Delete Event Listener
     client.on('messageDelete', (deletedMessage) => {
@@ -158,16 +247,16 @@ for (const config of userBotConfigs) {
         }
     });
 
-    // Register custom events for each bot
-    for (const [eventName, eventHandler] of botCustomEvents.get(config.token)?.entries() || []) {
-        client.on(eventName, eventHandler);
-    }
-
     botClients.set(config.token, client);
 }
 
-// Define and add commands to each bot
-// (Add your commands for each bot here using botCommands.set() similar to previous examples)
+// Add common commands to the botCommands map
+commonCommands.forEach((command) => {
+    botCommands.set(command.name, command);
+});
+
+// Define and add additional commands specific to each bot
+// (Add your bot-specific commands to the botCommands map)
 
 // Greeting and Farewell Messages
 for (const [, client] of botClients) {
