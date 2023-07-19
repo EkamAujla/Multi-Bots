@@ -1,4 +1,4 @@
-# Multi-Bot Madness 🤖🎉
+# Multi-Bot Madness 🤖🎉 (Experimental)
 
 [![Bot License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/EkamAujla/Multi-Bots)
