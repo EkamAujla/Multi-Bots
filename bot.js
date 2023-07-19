@@ -97,70 +97,6 @@ const userBotConfigs = [
 // Bot owners (Replace 'YOUR_BOT_OWNER_ID' with the actual user ID of the bot owner)
 const botOwners = new Set(['YOUR_BOT_OWNER_ID']);
 
-// Create client instances for each bot
-const botClients = new Map();
-
-// Create a command handler
-class CommandHandler {
-    constructor(prefix) {
-        this.prefix = prefix;
-        this.cooldowns = new Map();
-    }
-
-    handleCommand(interaction, message, args) {
-        const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
-        const command = this.getCommand(commandName);
-
-        if (command) {
-            this.executeCommand(command, interaction, message, args);
-        } else {
-            this.sendErrorMessage(
-                interaction ? interaction.channel : message.channel,
-                `Unknown command: ${commandName}`
-            );
-        }
-    }
-
-    getCommand(commandName) {
-        return botCommands.get(`${this.prefix} ${commandName}`);
-    }
-
-    async executeCommand(command, interaction, message, args) {
-        // Cooldown handling
-        if (interaction) {
-            const commandKey = interaction.user.id;
-            if (this.cooldowns.has(commandKey)) {
-                this.sendErrorMessage(
-                    interaction.channel,
-                    'You are on cooldown for this command. Please wait a bit before using it again.'
-                );
-                return;
-            }
-
-            this.cooldowns.set(commandKey, true);
-            setTimeout(() => this.cooldowns.delete(commandKey), command.cooldown || 3000); // 3 seconds by default
-        }
-
-        try {
-            await command.execute(interaction, message, args);
-        } catch (error) {
-            console.error(error);
-            this.sendErrorMessage(
-                interaction ? interaction.channel : message.channel,
-                'An error occurred while executing the command.'
-            );
-            logErrorToChannel(
-                interaction ? interaction.channel : message.channel,
-                error
-            );
-        }
-    }
-
-    sendErrorMessage(channel, errorMessage) {
-        channel.send(`❌ ${errorMessage}`);
-    }
-}
-
 // Utility functions for webhook logging
 function logErrorToChannel(channel, error) {
     const logEmbed = new MessageEmbed().setColor('#ff0000').setTitle('Error').setDescription(error.message);
@@ -168,11 +104,10 @@ function logErrorToChannel(channel, error) {
 }
 
 // Function to register slash commands for each bot
-async function registerSlashCommands(client, config) {
-    const commandHandler = new CommandHandler(config.prefix);
-    const enabledCommands = commonCommands.filter((command) =>
-        config.enabledCommands.includes(command.name)
-    );
+async function registerSlashCommands(client) {
+    const config = userBotConfigs.find((bot) => bot.token === client.token);
+
+    const enabledCommands = commonCommands.filter((command) => config.enabledCommands.includes(command.name));
 
     try {
         await client.application?.commands.set(enabledCommands);
@@ -180,6 +115,48 @@ async function registerSlashCommands(client, config) {
     } catch (error) {
         console.error(`Failed to register slash commands for ${client.user.username}: ${error.message}`);
     }
+}
+
+// Create and initialize bots
+for (const config of userBotConfigs) {
+    const client = new Client({
+        intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS],
+    });
+
+    // Add event listeners for each bot
+    client.on('ready', () => {
+        console.log(`${client.user.username} is online!`);
+        console.log(`Joined ${client.guilds.cache.size} guild(s).`);
+
+        // Set custom statuses when the bot is ready
+        if (config.customStatuses && config.customStatuses.length > 0) {
+            const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
+            const { type, text } = config.customStatuses[statusIndex];
+            client.user.setPresence({
+                activities: [{ type, name: text }],
+                status: 'online',
+            });
+
+            // Update status every 10 minutes
+            setInterval(() => {
+                const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
+                const { type, text } = config.customStatuses[statusIndex];
+                client.user.setPresence({
+                    activities: [{ type, name: text }],
+                    status: 'online',
+                });
+            }, 600000); // 10 minutes in milliseconds
+        }
+
+        // Register slash commands
+        registerSlashCommands(client);
+    });
+
+    // Register message commands
+    const enabledMessageCommands = commonCommands.filter((command) => config.enabledCommands.includes(command.name));
+    enabledMessageCommands.forEach((command) => {
+        botCommands.set(`${config.prefix} ${command.name}`, command);
+    });
 
     // Event listener for slash command interactions and context menu commands
     client.on('interactionCreate', async (interaction) => {
@@ -192,30 +169,14 @@ async function registerSlashCommands(client, config) {
                     args.push(option.value);
                 }
             }
-            commandHandler.handleCommand(interaction, null, args); // Pass null as the message object for slash commands
+            handleCommand(interaction, null, args); // Pass null as the message object for slash commands
         } else if (interaction.isContextMenu()) {
             const args = [interaction.targetId];
-            commandHandler.handleCommand(interaction, null, args); // Pass null as the message object for context menu commands
+            handleCommand(interaction, null, args); // Pass null as the message object for context menu commands
         }
     });
-}
 
-// Event listeners for each bot
-function setupBotEventListeners(client, config) {
-    const commandHandler = new CommandHandler(config.prefix);
-
-    client.on('ready', () => {
-        console.log(`${client.user.username} is online!`);
-        console.log(`Joined ${client.guilds.cache.size} guild(s).`);
-
-        if (config.customStatuses && config.customStatuses.length > 0) {
-            setRandomCustomStatus(client, config.customStatuses);
-            setInterval(() => setRandomCustomStatus(client, config.customStatuses), 600000); // 10 minutes
-        }
-
-        registerSlashCommands(client, config);
-    });
-
+    // Event listener for message commands
     client.on('messageCreate', (message) => {
         if (message.author.bot) return; // Ignore messages from other bots
 
@@ -225,9 +186,41 @@ function setupBotEventListeners(client, config) {
         const args = message.content.slice(prefix.length).trim().split(/ +/);
         const commandName = args.shift().toLowerCase();
 
-        commandHandler.handleCommand(null, message, args); // Pass null as the interaction object for message commands
+        const command = botCommands.get(`${prefix} ${commandName}`);
+        if (command) {
+            handleCommand(null, message, args); // Pass null as the interaction object for message commands
+        } else {
+            message.channel.send(`Invalid command. Type \`${prefix} help\` to see the list of commands.`);
+        }
     });
 
+    // Event listener for handling both slash commands and message commands
+    async function handleCommand(interaction, message, args) {
+        const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
+
+        const command = botCommands.get(commandName);
+        if (command) {
+            try {
+                command.execute(interaction, message, args);
+            } catch (error) {
+                console.error(error);
+                if (interaction && interaction.replied) {
+                    interaction.followUp({ content: 'An error occurred while executing the command.', ephemeral: true });
+                } else if (message) {
+                    message.channel.send('An error occurred while executing the command.');
+                }
+                logErrorToChannel(interaction ? interaction.channel : message.channel, error);
+            }
+        } else {
+            if (interaction && interaction.replied) {
+                interaction.followUp({ content: `Unknown command: ${commandName}`, ephemeral: true });
+            } else if (message) {
+                message.channel.send(`Unknown command: ${commandName}`);
+            }
+        }
+    }
+
+    // Message Delete Event Listener
     client.on('messageDelete', (deletedMessage) => {
         const logMessage = `A message was deleted: "${deletedMessage.content}"`;
         console.log(logMessage);
@@ -239,6 +232,7 @@ function setupBotEventListeners(client, config) {
         }
     });
 
+    // Guild Create Event Listener
     client.on('guildCreate', (guild) => {
         const logMessage = `Joined a new guild: ${guild.name} (ID: ${guild.id}).`;
         console.log(logMessage);
@@ -250,6 +244,7 @@ function setupBotEventListeners(client, config) {
         }
     });
 
+    // Guild Delete Event Listener
     client.on('guildDelete', (guild) => {
         const logMessage = `Left a guild: ${guild.name} (ID: ${guild.id}).`;
         console.log(logMessage);
@@ -260,46 +255,17 @@ function setupBotEventListeners(client, config) {
             logChannel.send(logMessage);
         }
     });
-}
-
-function setRandomCustomStatus(client, customStatuses) {
-    const statusIndex = Math.floor(Math.random() * customStatuses.length);
-    const { type, text } = customStatuses[statusIndex];
-    client.user.setPresence({
-        activities: [{ type, name: text }],
-        status: 'online',
-    });
-}
-
-// Add common commands to the botCommands map
-const botCommands = new Map();
-commonCommands.forEach((command) => {
-    botCommands.set(command.name, command);
-});
-
-// Create and initialize bots
-for (const config of userBotConfigs) {
-    const client = new Client({
-        intents: [
-            Intents.FLAGS.GUILDS,
-            Intents.FLAGS.GUILD_MESSAGES,
-            Intents.FLAGS.GUILD_MESSAGE_REACTIONS,
-        ],
-    });
-
-    // Register message commands
-    const enabledMessageCommands = commonCommands.filter((command) =>
-        config.enabledCommands.includes(command.name)
-    );
-    enabledMessageCommands.forEach((command) => {
-        botCommands.set(`${config.prefix} ${command.name}`, command);
-    });
-
-    // Setup event listeners for the bot
-    setupBotEventListeners(client, config);
 
     botClients.set(config.token, client);
 }
+
+// Command map for each bot
+const botCommands = new Map();
+
+// Add common commands to the botCommands map
+commonCommands.forEach((command) => {
+    botCommands.set(command.name, command);
+});
 
 // Login each bot
 async function loginAllBots() {
@@ -308,13 +274,12 @@ async function loginAllBots() {
             await client.login(token);
         } catch (error) {
             console.error(`Bot ${client.user.username} failed to log in: ${error.message}`);
-            logErrorToChannel(
-                client.channels.cache.find((channel) => channel.type === 'GUILD_TEXT'),
-                error
-            );
-            // Handle login errors more effectively, e.g., retrying the login
+            logErrorToChannel(client.channels.cache.find((channel) => channel.type === 'GUILD_TEXT'), error);
         }
     }
 }
+
+// Create client instances for each bot
+const botClients = new Map();
 
 loginAllBots();
