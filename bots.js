@@ -1,4 +1,4 @@
-const { Client, MessageEmbed } = require('discord.js');
+const { Client, Intents, MessageEmbed } = require('discord.js');
 const axios = require('axios');
 
 // Common commands array
@@ -91,7 +91,7 @@ function logErrorToChannel(channel, error) {
 
 // Typing Indicator
 const simulateTyping = async (channel) => {
-    channel.startTyping();
+    channel.sendTyping();
     await new Promise((resolve) => setTimeout(resolve, Math.random() * 5000 + 2000));
     channel.stopTyping();
 };
@@ -112,7 +112,9 @@ async function registerSlashCommands(client) {
 
 // Create and initialize bots
 for (const config of userBotConfigs) {
-    const client = new Client();
+    const client = new Client({
+        intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS],
+    });
 
     // Event listeners for each bot
     client.on('ready', () => {
@@ -124,7 +126,7 @@ for (const config of userBotConfigs) {
             const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
             const { type, text } = config.customStatuses[statusIndex];
             client.user.setPresence({
-                activity: { type, name: text },
+                activities: [{ type, name: text }],
                 status: 'online',
             });
 
@@ -133,7 +135,7 @@ for (const config of userBotConfigs) {
                 const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
                 const { type, text } = config.customStatuses[statusIndex];
                 client.user.setPresence({
-                    activity: { type, name: text },
+                    activities: [{ type, name: text }],
                     status: 'online',
                 });
             }, 600000); // 10 minutes in milliseconds
@@ -290,7 +292,7 @@ async function loginAllBots() {
             await client.login(token);
         } catch (error) {
             console.error(`Bot ${client.user.username} failed to log in: ${error.message}`);
-            logErrorToChannel(client.channels.cache.find(channel => channel.type === 'text'), error);
+            logErrorToChannel(client.channels.cache.find(channel => channel.type === 'GUILD_TEXT'), error);
         }
     }
 }
