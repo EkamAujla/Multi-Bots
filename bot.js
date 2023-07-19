@@ -97,11 +97,27 @@ const userBotConfigs = [
 // Bot owners (Replace 'YOUR_BOT_OWNER_ID' with the actual user ID of the bot owner)
 const botOwners = new Set(['YOUR_BOT_OWNER_ID']);
 
+// Create client instances for each bot
+const botClients = new Map();
+
+// Command map for each bot
+const botCommands = new Map();
+
+// Custom event map for each bot
+const botCustomEvents = new Map();
+
 // Utility functions for webhook logging
 function logErrorToChannel(channel, error) {
     const logEmbed = new MessageEmbed().setColor('#ff0000').setTitle('Error').setDescription(error.message);
     channel.send({ embeds: [logEmbed] });
 }
+
+// Typing Indicator
+const simulateTyping = async (channel) => {
+    channel.sendTyping();
+    await new Promise((resolve) => setTimeout(resolve, Math.random() * 5000 + 2000));
+    channel.stopTyping();
+};
 
 // Function to register slash commands for each bot
 async function registerSlashCommands(client) {
@@ -117,157 +133,133 @@ async function registerSlashCommands(client) {
     }
 }
 
-// Create and initialize bots
-for (const config of userBotConfigs) {
-    const client = new Client({
-        intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS],
-    });
+// Event handlers
+function handleReady(client, config) {
+    console.log(`${client.user.username} is online!`);
+    console.log(`Joined ${client.guilds.cache.size} guild(s).`);
 
-    // Add event listeners for each bot
-    client.on('ready', () => {
-        console.log(`${client.user.username} is online!`);
-        console.log(`Joined ${client.guilds.cache.size} guild(s).`);
-
-        // Set custom statuses when the bot is ready
-        if (config.customStatuses && config.customStatuses.length > 0) {
-            const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
-            const { type, text } = config.customStatuses[statusIndex];
-            client.user.setPresence({
-                activities: [{ type, name: text }],
-                status: 'online',
-            });
-
-            // Update status every 10 minutes
-            setInterval(() => {
-                const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
-                const { type, text } = config.customStatuses[statusIndex];
-                client.user.setPresence({
-                    activities: [{ type, name: text }],
-                    status: 'online',
-                });
-            }, 600000); // 10 minutes in milliseconds
-        }
-
-        // Register slash commands
-        registerSlashCommands(client);
-    });
-
-    // Register message commands
-    const enabledMessageCommands = commonCommands.filter((command) => config.enabledCommands.includes(command.name));
-    enabledMessageCommands.forEach((command) => {
-        botCommands.set(`${config.prefix} ${command.name}`, command);
-    });
-
-    // Event listener for slash command interactions and context menu commands
-    client.on('interactionCreate', async (interaction) => {
-        if (interaction.isCommand()) {
-            const args = [];
-            for (const option of interaction.options.data) {
-                if (option.type === 'SUB_COMMAND') {
-                    args.push(option.name);
-                } else if (option.type === 'STRING' || option.type === 'INTEGER') {
-                    args.push(option.value);
-                }
-            }
-            handleCommand(interaction, null, args); // Pass null as the message object for slash commands
-        } else if (interaction.isContextMenu()) {
-            const args = [interaction.targetId];
-            handleCommand(interaction, null, args); // Pass null as the message object for context menu commands
-        }
-    });
-
-    // Event listener for message commands
-    client.on('messageCreate', (message) => {
-        if (message.author.bot) return; // Ignore messages from other bots
-
-        const { prefix } = config;
-        if (!message.content.startsWith(prefix)) return; // Ignore messages without the correct prefix
-
-        const args = message.content.slice(prefix.length).trim().split(/ +/);
-        const commandName = args.shift().toLowerCase();
-
-        const command = botCommands.get(`${prefix} ${commandName}`);
-        if (command) {
-            handleCommand(null, message, args); // Pass null as the interaction object for message commands
-        } else {
-            message.channel.send(`Invalid command. Type \`${prefix} help\` to see the list of commands.`);
-        }
-    });
-
-    // Event listener for handling both slash commands and message commands
-    async function handleCommand(interaction, message, args) {
-        const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
-
-        const command = botCommands.get(commandName);
-        if (command) {
-            try {
-                command.execute(interaction, message, args);
-            } catch (error) {
-                console.error(error);
-                if (interaction && interaction.replied) {
-                    interaction.followUp({ content: 'An error occurred while executing the command.', ephemeral: true });
-                } else if (message) {
-                    message.channel.send('An error occurred while executing the command.');
-                }
-                logErrorToChannel(interaction ? interaction.channel : message.channel, error);
-            }
-        } else {
-            if (interaction && interaction.replied) {
-                interaction.followUp({ content: `Unknown command: ${commandName}`, ephemeral: true });
-            } else if (message) {
-                message.channel.send(`Unknown command: ${commandName}`);
-            }
-        }
+    if (config.customStatuses && config.customStatuses.length > 0) {
+        updateCustomStatuses(client, config.customStatuses);
     }
-
-    // Message Delete Event Listener
-    client.on('messageDelete', (deletedMessage) => {
-        const logMessage = `A message was deleted: "${deletedMessage.content}"`;
-        console.log(logMessage);
-
-        const logChannelID = config.logChannels.messageDeleted;
-        const logChannel = client.channels.cache.get(logChannelID);
-        if (logChannel) {
-            logChannel.send(logMessage);
-        }
-    });
-
-    // Guild Create Event Listener
-    client.on('guildCreate', (guild) => {
-        const logMessage = `Joined a new guild: ${guild.name} (ID: ${guild.id}).`;
-        console.log(logMessage);
-
-        const logChannelID = config.logChannels.joinedGuild;
-        const logChannel = client.channels.cache.get(logChannelID);
-        if (logChannel) {
-            logChannel.send(logMessage);
-        }
-    });
-
-    // Guild Delete Event Listener
-    client.on('guildDelete', (guild) => {
-        const logMessage = `Left a guild: ${guild.name} (ID: ${guild.id}).`;
-        console.log(logMessage);
-
-        const logChannelID = config.logChannels.leftGuild;
-        const logChannel = client.channels.cache.get(logChannelID);
-        if (logChannel) {
-            logChannel.send(logMessage);
-        }
-    });
-
-    botClients.set(config.token, client);
 }
 
-// Command map for each bot
-const botCommands = new Map();
+function handleInteraction(interaction, config) {
+    if (interaction.isCommand()) {
+        const args = [];
+        for (const option of interaction.options.data) {
+            if (option.type === 'SUB_COMMAND') {
+                args.push(option.name);
+            } else if (option.type === 'STRING' || option.type === 'INTEGER') {
+                args.push(option.value);
+            }
+        }
+        handleCommand(interaction, null, args, config); // Pass null as the message object for slash commands
+    } else if (interaction.isContextMenu()) {
+        const args = [interaction.targetId];
+        handleCommand(interaction, null, args, config); // Pass null as the message object for context menu commands
+    }
+}
+
+function handleMessage(message, config) {
+    if (message.author.bot) return; // Ignore messages from other bots
+
+    const { prefix } = config;
+    if (!message.content.startsWith(prefix)) return; // Ignore messages without the correct prefix
+
+    const args = message.content.slice(prefix.length).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+
+    const command = botCommands.get(`${prefix} ${commandName}`);
+    if (command) {
+        handleCommand(null, message, args, config); // Pass null as the interaction object for message commands
+    } else {
+        message.channel.send(`Invalid command. Type \`${prefix} help\` to see the list of commands.`);
+    }
+}
+
+function handleMessageDelete(deletedMessage, config) {
+    const logMessage = `A message was deleted: "${deletedMessage.content}"`;
+    console.log(logMessage);
+
+    const logChannelID = config.logChannels.messageDeleted;
+    const logChannel = botClients.get(config.token)?.channels.cache.get(logChannelID);
+    if (logChannel) {
+        logChannel.send(logMessage);
+    }
+}
+
+function handleGuildCreate(guild, config) {
+    const logMessage = `Joined a new guild: ${guild.name} (ID: ${guild.id}).`;
+    console.log(logMessage);
+
+    const logChannelID = config.logChannels.joinedGuild;
+    const logChannel = botClients.get(config.token)?.channels.cache.get(logChannelID);
+    if (logChannel) {
+        logChannel.send(logMessage);
+    }
+}
+
+function handleGuildDelete(guild, config) {
+    const logMessage = `Left a guild: ${guild.name} (ID: ${guild.id}).`;
+    console.log(logMessage);
+
+    const logChannelID = config.logChannels.leftGuild;
+    const logChannel = botClients.get(config.token)?.channels.cache.get(logChannelID);
+    if (logChannel) {
+        logChannel.send(logMessage);
+    }
+}
+
+// Function to update custom statuses
+function updateCustomStatuses(client, customStatuses) {
+    const updateStatus = () => {
+        const statusIndex = Math.floor(Math.random() * customStatuses.length);
+        const { type, text } = customStatuses[statusIndex];
+        client.user.setPresence({
+            activities: [{ type, name: text }],
+            status: 'online',
+        });
+    };
+
+    // Set custom status when the bot is ready
+    updateStatus();
+
+    // Update status every 10 minutes
+    setInterval(updateStatus, 600000); // 10 minutes in milliseconds
+}
+
+// Function to handle commands
+async function handleCommand(interaction, message, args, config) {
+    const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
+
+    const command = botCommands.get(commandName);
+    if (command) {
+        try {
+            command.execute(interaction, message, args);
+        } catch (error) {
+            console.error(error);
+            if (interaction && interaction.replied) {
+                interaction.followUp({ content: 'An error occurred while executing the command.', ephemeral: true });
+            } else if (message) {
+                message.channel.send('An error occurred while executing the command.');
+            }
+            logErrorToChannel(interaction ? interaction.channel : message.channel, error);
+        }
+    } else {
+        if (interaction && interaction.replied) {
+            interaction.followUp({ content: `Unknown command: ${commandName}`, ephemeral: true });
+        } else if (message) {
+            message.channel.send(`Unknown command: ${commandName}`);
+        }
+    }
+}
 
 // Add common commands to the botCommands map
 commonCommands.forEach((command) => {
     botCommands.set(command.name, command);
 });
 
-// Login each bot
+// Function to login each bot
 async function loginAllBots() {
     for (const [token, client] of botClients) {
         try {
@@ -279,7 +271,5 @@ async function loginAllBots() {
     }
 }
 
-// Create client instances for each bot
-const botClients = new Map();
-
+// Login all bots
 loginAllBots();
