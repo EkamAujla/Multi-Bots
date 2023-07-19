@@ -24,6 +24,30 @@ const commonCommands = [
         },
     },
     // Add more common commands here
+    {
+        name: 'eval',
+        description: 'Evaluate JavaScript code',
+        execute: (interaction, message, args) => {
+            // Check if the user is a bot owner (replace 'YOUR_BOT_OWNER_ID' with the actual owner ID)
+            if (!botOwners.has(interaction?.user?.id || message?.author?.id)) {
+                return interaction
+                    ? interaction.reply({ content: 'Only bot owners can use this command.', ephemeral: true })
+                    : message.channel.send('Only bot owners can use this command.');
+            }
+
+            const code = args.join(' ');
+            try {
+                const result = eval(code);
+                const output = result instanceof Object ? JSON.stringify(result, null, 2) : String(result);
+
+                const response = `\`\`\`js\n${output}\`\`\``;
+                interaction ? interaction.reply(response) : message.channel.send(response);
+            } catch (error) {
+                const errorMessage = `\`\`\`js\n${error}\`\`\``;
+                interaction ? interaction.reply(errorMessage) : message.channel.send(errorMessage);
+            }
+        },
+    },
 ];
 
 // User-defined bot configurations
@@ -46,7 +70,7 @@ const userBotConfigs = [
                 text: 'over the server!',
             },
         ],
-        enabledCommands: ['command1', 'command2'], // Add the names of the enabled commands here
+        enabledCommands: ['command1', 'command2', 'eval'], // Add the names of the enabled commands here
     },
     {
         token: 'YOUR_BOT_2_TOKEN',
@@ -66,7 +90,7 @@ const userBotConfigs = [
                 text: 'with moderation settings.',
             },
         ],
-        enabledCommands: ['command1', 'command2'], // Add the names of the enabled commands here
+        enabledCommands: ['command1', 'command2', 'eval'], // Add the names of the enabled commands here
     },
     // Add more bot configurations as needed
 ];
@@ -257,34 +281,6 @@ commonCommands.forEach((command) => {
     botCommands.set(command.name, command);
 });
 
-// Define and add additional commands specific to each bot
-// (Add your bot-specific commands to the botCommands map)
-
-// Greeting and Farewell Messages
-for (const [, client] of botClients) {
-    client.on('guildMemberAdd', (member) => {
-        const welcomeMessage = `Welcome, ${member.user.username}! We're glad to have you here.`;
-        member.guild.systemChannel.send(welcomeMessage);
-    });
-
-    client.on('guildMemberRemove', (member) => {
-        const farewellMessage = `Goodbye, ${member.user.username}. We hope to see you again soon!`;
-        member.guild.systemChannel.send(farewellMessage);
-    });
-}
-
-// Add custom events for each bot (Example)
-const bot1CustomEvents = new Map([
-    [
-        'customEventName',
-        (arg1, arg2) => {
-            console.log(`Custom event triggered for bot1 with arguments: ${arg1}, ${arg2}`);
-        },
-    ],
-]);
-
-botCustomEvents.set('YOUR_BOT_1_TOKEN', bot1CustomEvents);
-
 // Login each bot
 async function loginAllBots() {
     for (const [token, client] of botClients) {
@@ -292,7 +288,7 @@ async function loginAllBots() {
             await client.login(token);
         } catch (error) {
             console.error(`Bot ${client.user.username} failed to log in: ${error.message}`);
-            logErrorToChannel(client.channels.cache.find(channel => channel.type === 'GUILD_TEXT'), error);
+            logErrorToChannel(client.channels.cache.find((channel) => channel.type === 'GUILD_TEXT'), error);
         }
     }
 }
