@@ -7,9 +7,6 @@ const commonCommands = [
         description: 'Description for command1',
         execute: (interaction, message, args) => {
             // Your command1 logic here
-            // 'interaction' is the interaction object for slash commands
-            // 'message' is the message object for message commands
-            // 'args' is an array of command arguments
         },
     },
     {
@@ -17,9 +14,6 @@ const commonCommands = [
         description: 'Description for command2',
         execute: (interaction, message, args) => {
             // Your command2 logic here
-            // 'interaction' is the interaction object for slash commands
-            // 'message' is the message object for message commands
-            // 'args' is an array of command arguments
         },
     },
     // Add more common commands here
@@ -104,9 +98,7 @@ function logErrorToChannel(channel, error) {
 }
 
 // Function to register slash commands for each bot
-async function registerSlashCommands(client) {
-    const config = userBotConfigs.find((bot) => bot.token === client.token);
-
+async function registerSlashCommands(client, config) {
     const enabledCommands = commonCommands.filter((command) => config.enabledCommands.includes(command.name));
 
     try {
@@ -118,38 +110,36 @@ async function registerSlashCommands(client) {
 }
 
 // Create and initialize bots
+const botClients = new Map();
+
 for (const config of userBotConfigs) {
     const client = new Client({
         intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS],
     });
 
-    // Add event listeners for each bot
-    client.on('ready', () => {
+    botClients.set(config.token, client);
+
+    client.once('ready', () => {
         console.log(`${client.user.username} is online!`);
         console.log(`Joined ${client.guilds.cache.size} guild(s).`);
 
         // Set custom statuses when the bot is ready
         if (config.customStatuses && config.customStatuses.length > 0) {
-            const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
-            const { type, text } = config.customStatuses[statusIndex];
-            client.user.setPresence({
-                activities: [{ type, name: text }],
-                status: 'online',
-            });
-
-            // Update status every 10 minutes
-            setInterval(() => {
+            const updateCustomStatus = () => {
                 const statusIndex = Math.floor(Math.random() * config.customStatuses.length);
                 const { type, text } = config.customStatuses[statusIndex];
                 client.user.setPresence({
                     activities: [{ type, name: text }],
                     status: 'online',
                 });
-            }, 600000); // 10 minutes in milliseconds
+            };
+
+            updateCustomStatus(); // Set initial custom status
+            setInterval(updateCustomStatus, 600000); // Update status every 10 minutes
         }
 
         // Register slash commands
-        registerSlashCommands(client);
+        registerSlashCommands(client, config);
     });
 
     // Register message commands
@@ -254,9 +244,7 @@ for (const config of userBotConfigs) {
         if (logChannel) {
             logChannel.send(logMessage);
         }
-    });
-
-    botClients.set(config.token, client);
+    }
 }
 
 // Command map for each bot
@@ -278,8 +266,5 @@ async function loginAllBots() {
         }
     }
 }
-
-// Create client instances for each bot
-const botClients = new Map();
 
 loginAllBots();
