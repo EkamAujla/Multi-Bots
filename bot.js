@@ -100,28 +100,88 @@ const botOwners = new Set(['YOUR_BOT_OWNER_ID']);
 // Create client instances for each bot
 const botClients = new Map();
 
-// Command map for each bot
-const botCommands = new Map();
+// Create a command handler
+class CommandHandler {
+    constructor(prefix) {
+        this.prefix = prefix;
+        this.cooldowns = new Map();
+    }
 
-// Function to register slash commands for each bot
-async function registerSlashCommands(client) {
-    // Add your slash command registration logic here
-}
+    handleCommand(interaction, message, args) {
+        const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
+        const command = this.getCommand(commandName);
 
-// Event listeners for each bot
-function setupBotEventListeners(client, config) {
-    client.on('ready', () => {
-        console.log(`${client.user.username} is online!`);
-        console.log(`Joined ${client.guilds.cache.size} guild(s).`);
+        if (command) {
+            this.executeCommand(command, interaction, message, args);
+        } else {
+            this.sendErrorMessage(
+                interaction ? interaction.channel : message.channel,
+                `Unknown command: ${commandName}`
+            );
+        }
+    }
 
-        if (config.customStatuses && config.customStatuses.length > 0) {
-            setRandomCustomStatus(client, config.customStatuses);
-            setInterval(() => setRandomCustomStatus(client, config.customStatuses), 600000); // 10 minutes
+    getCommand(commandName) {
+        return botCommands.get(`${this.prefix} ${commandName}`);
+    }
+
+    async executeCommand(command, interaction, message, args) {
+        // Cooldown handling
+        if (interaction) {
+            const commandKey = interaction.user.id;
+            if (this.cooldowns.has(commandKey)) {
+                this.sendErrorMessage(
+                    interaction.channel,
+                    'You are on cooldown for this command. Please wait a bit before using it again.'
+                );
+                return;
+            }
+
+            this.cooldowns.set(commandKey, true);
+            setTimeout(() => this.cooldowns.delete(commandKey), command.cooldown || 3000); // 3 seconds by default
         }
 
-        registerSlashCommands(client);
-    });
+        try {
+            await command.execute(interaction, message, args);
+        } catch (error) {
+            console.error(error);
+            this.sendErrorMessage(
+                interaction ? interaction.channel : message.channel,
+                'An error occurred while executing the command.'
+            );
+            logErrorToChannel(
+                interaction ? interaction.channel : message.channel,
+                error
+            );
+        }
+    }
 
+    sendErrorMessage(channel, errorMessage) {
+        channel.send(`❌ ${errorMessage}`);
+    }
+}
+
+// Utility functions for webhook logging
+function logErrorToChannel(channel, error) {
+    const logEmbed = new MessageEmbed().setColor('#ff0000').setTitle('Error').setDescription(error.message);
+    channel.send({ embeds: [logEmbed] });
+}
+
+// Function to register slash commands for each bot
+async function registerSlashCommands(client, config) {
+    const commandHandler = new CommandHandler(config.prefix);
+    const enabledCommands = commonCommands.filter((command) =>
+        config.enabledCommands.includes(command.name)
+    );
+
+    try {
+        await client.application?.commands.set(enabledCommands);
+        console.log(`Registered slash commands for ${client.user.username}.`);
+    } catch (error) {
+        console.error(`Failed to register slash commands for ${client.user.username}: ${error.message}`);
+    }
+
+    // Event listener for slash command interactions and context menu commands
     client.on('interactionCreate', async (interaction) => {
         if (interaction.isCommand()) {
             const args = [];
@@ -132,11 +192,28 @@ function setupBotEventListeners(client, config) {
                     args.push(option.value);
                 }
             }
-            handleCommand(interaction, null, args); // Pass null as the message object for slash commands
+            commandHandler.handleCommand(interaction, null, args); // Pass null as the message object for slash commands
         } else if (interaction.isContextMenu()) {
             const args = [interaction.targetId];
-            handleCommand(interaction, null, args); // Pass null as the message object for context menu commands
+            commandHandler.handleCommand(interaction, null, args); // Pass null as the message object for context menu commands
         }
+    });
+}
+
+// Event listeners for each bot
+function setupBotEventListeners(client, config) {
+    const commandHandler = new CommandHandler(config.prefix);
+
+    client.on('ready', () => {
+        console.log(`${client.user.username} is online!`);
+        console.log(`Joined ${client.guilds.cache.size} guild(s).`);
+
+        if (config.customStatuses && config.customStatuses.length > 0) {
+            setRandomCustomStatus(client, config.customStatuses);
+            setInterval(() => setRandomCustomStatus(client, config.customStatuses), 600000); // 10 minutes
+        }
+
+        registerSlashCommands(client, config);
     });
 
     client.on('messageCreate', (message) => {
@@ -148,12 +225,7 @@ function setupBotEventListeners(client, config) {
         const args = message.content.slice(prefix.length).trim().split(/ +/);
         const commandName = args.shift().toLowerCase();
 
-        const command = botCommands.get(`${prefix} ${commandName}`);
-        if (command) {
-            handleCommand(null, message, args); // Pass null as the interaction object for message commands
-        } else {
-            message.channel.send(`Invalid command. Type \`${prefix} help\` to see the list of commands.`);
-        }
+        commandHandler.handleCommand(null, message, args); // Pass null as the interaction object for message commands
     });
 
     client.on('messageDelete', (deletedMessage) => {
@@ -199,38 +271,8 @@ function setRandomCustomStatus(client, customStatuses) {
     });
 }
 
-async function handleCommand(interaction, message, args) {
-    const commandName = interaction ? interaction.commandName : args.shift().toLowerCase();
-
-    const command = botCommands.get(commandName);
-    if (command) {
-        try {
-            command.execute(interaction, message, args);
-        } catch (error) {
-            console.error(error);
-            if (interaction && interaction.replied) {
-                interaction.followUp({ content: 'An error occurred while executing the command.', ephemeral: true });
-            } else if (message) {
-                message.channel.send('An error occurred while executing the command.');
-            }
-            logErrorToChannel(interaction ? interaction.channel : message.channel, error);
-        }
-    } else {
-        if (interaction && interaction.replied) {
-            interaction.followUp({ content: `Unknown command: ${commandName}`, ephemeral: true });
-        } else if (message) {
-            message.channel.send(`Unknown command: ${commandName}`);
-        }
-    }
-}
-
-// Helper function to log an error to the specified channel
-function logErrorToChannel(channel, error) {
-    const logEmbed = new MessageEmbed().setColor('#ff0000').setTitle('Error').setDescription(error.message);
-    channel.send({ embeds: [logEmbed] });
-}
-
 // Add common commands to the botCommands map
+const botCommands = new Map();
 commonCommands.forEach((command) => {
     botCommands.set(command.name, command);
 });
@@ -255,9 +297,6 @@ for (const config of userBotConfigs) {
 
     // Setup event listeners for the bot
     setupBotEventListeners(client, config);
-
-    // Register slash commands
-    registerSlashCommands(client);
 
     botClients.set(config.token, client);
 }
